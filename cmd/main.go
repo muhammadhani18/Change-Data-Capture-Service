@@ -1,30 +1,35 @@
 package main
 
 import (
-	"fmt"
-	"os"
+	"log"
 
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+
+	"github.com/muhammadhani18/go-cdc-service/internal/wal"
 )
 
 func main() {
-	// Init config
 	viper.SetConfigName("config")
 	viper.AddConfigPath(".")
 	viper.AutomaticEnv()
-
 	if err := viper.ReadInConfig(); err != nil {
-		fmt.Printf("Config read error: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("Config read error: %v\n", err)
 	}
 
-	// Init logger
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
+	logger.Info("Starting CDC service...")
 
-	logger.Info("CDC service starting up...")
+	replicator, err := wal.NewReplicator()
+	if err != nil {
+		logger.Fatal("Replication setup error", zap.Error(err))
+	}
 
-	// Placeholder for CDC pipeline
-	logger.Info("CDC pipeline not implemented yet.")
+	slot := viper.GetString("postgres.slot_name")
+	pub := viper.GetString("postgres.publication_name")
+
+	if err := replicator.StartReplication(slot, pub); err != nil {
+		logger.Fatal("Replication stream error", zap.Error(err))
+	}
 }
