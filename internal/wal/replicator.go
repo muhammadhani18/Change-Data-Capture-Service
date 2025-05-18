@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	// If you decided to use pgx.Identifier, you'd import "github.com/jackc/pgx/v5"
+	"github.com/muhammadhani18/go-cdc-service/internal/store"
+
 	"github.com/muhammadhani18/go-cdc-service/internal/kafka"
 	"github.com/spf13/viper"
 )
@@ -30,9 +32,10 @@ type Replicator struct {
 	slotName         string
 	publicationName  string
 	producer         *kafka.Producer
+	store 			 *store.Store
 }
 
-func NewReplicator(producer *kafka.Producer) (*Replicator, error) {
+func NewReplicator(producer *kafka.Producer, s *store.Store) (*Replicator, error) {
 	connStr := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s replication=database",
 		viper.GetString("postgres.host"),
@@ -46,11 +49,19 @@ func NewReplicator(producer *kafka.Producer) (*Replicator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
 	}
-
+    
+	lastLSN, err := s.GetLSN()
+    
+	if err != nil {
+        return nil, fmt.Errorf("load last LSN: %w", err)
+    }
+	
 	return &Replicator{
 		conn:          conn,
 		relationStore: make(map[uint32]*pglogrepl.RelationMessage),
 		producer:      producer,
+		store:            s,
+        lastProcessedLSN: lastLSN,	
 	}, nil
 }
 
@@ -241,6 +252,10 @@ func (r *Replicator) StartReplication(slotName, publication string) error {
 				WALApplyPosition: r.lastProcessedLSN,
 				ClientTime:       time.Now(),
 			})
+			if err := r.store.SaveLSN(r.lastProcessedLSN); err != nil {
+				log.Printf("⚠️ failed to persist LSN %s: %v", r.lastProcessedLSN, err)
+			}
+			
 			if err != nil {
 				log.Printf("SendStandbyStatusUpdate (timed) failed: %v", err)
 				return fmt.Errorf("send standby status update (timed): %w", err)

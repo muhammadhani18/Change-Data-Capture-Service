@@ -8,6 +8,7 @@ import (
 
 	"github.com/muhammadhani18/go-cdc-service/internal/wal"
 	"github.com/muhammadhani18/go-cdc-service/internal/kafka"
+	"github.com/muhammadhani18/go-cdc-service/internal/store"
 )
 
 func main() {
@@ -22,11 +23,18 @@ func main() {
 	defer logger.Sync()
 	logger.Info("Starting CDC service...")
 	
-	// 1) Initialize Kafka producer
+	// 1) Open or create the BoltDB store
+	s, err := store.OpenStore("cdc-checkpoint.db")
+	if err != nil {
+		logger.Fatal("failed to open LSN store", zap.Error(err))
+	}
+	defer s.Close()
+
+	// 2) Initialize Kafka producer
 	producer := kafka.NewProducer()
 	defer producer.Close()
 
-	replicator, err := wal.NewReplicator(producer)
+	replicator, err := wal.NewReplicator(producer,s)
 	if err != nil {
 		logger.Fatal("Replication setup error", zap.Error(err))
 	}
