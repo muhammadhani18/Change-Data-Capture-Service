@@ -2,6 +2,7 @@ package wal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/muhammadhani18/go-cdc-service/internal/kafka"
 	"github.com/spf13/viper"
 )
 
@@ -18,9 +20,10 @@ type Replicator struct {
 	lastProcessedLSN pglogrepl.LSN // To track LSN for StandbyStatusUpdate
 	slotName         string
 	publicationName  string
+	producer         *kafka.Producer
 }
 
-func NewReplicator() (*Replicator, error) {
+func NewReplicator(producer *kafka.Producer) (*Replicator, error) {
 	connStr := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s replication=database",
 		viper.GetString("postgres.host"),
@@ -38,6 +41,7 @@ func NewReplicator() (*Replicator, error) {
 	return &Replicator{
 		conn:          conn,
 		relationStore: make(map[uint32]*pglogrepl.RelationMessage),
+		producer:      producer, 
 	}, nil
 }
 
@@ -196,6 +200,31 @@ func (r *Replicator) StartReplication(slotName, publication string) error {
 					log.Printf("Unknown relation ID %d for InsertMessage", msg.RelationID)
 					continue
 				}
+				// Build a simple event struct
+				event := map[string]interface{}{
+					"type":      "insert",
+					"schema":    rel.Namespace,
+					"table":     rel.RelationName,
+					"columns":   rel.Columns,            // column definitions
+					"values":    msg.Tuple.Columns,      // actual row values
+					"lsn":       xld.WALStart.String(),
+					"timestamp": xld.ServerTime,
+				}
+				payload, err := json.Marshal(event)
+				if err != nil {
+					log.Printf("JSON marshal error: %v", err)
+					break
+				}
+
+				// Use a composite key (e.g. table + primary key value)
+				key := []byte(fmt.Sprintf("%s:%v", rel.RelationName, msg.Tuple.Columns[0]))
+				if err := r.producer.Publish(context.Background(), key, payload); err != nil {
+					log.Printf("Kafka publish error: %v", err)
+				} else {
+					log.Printf("Published insert event to Kafka: key=%s", key)
+				}
+
+
 				log.Printf("INSERT into %s: %v", rel.RelationName, msg.Tuple.Columns)
 				if xld.WALStart > r.lastProcessedLSN {
 					r.lastProcessedLSN = xld.WALStart
