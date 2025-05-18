@@ -49,6 +49,57 @@ services:
     volumes:
       - kafka_data:/bitnami/kafka
 
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0 # Specify a version
+    container_name: es-cdc
+    environment:
+      - node.name=es-single-node
+      - cluster.name=es-cluster
+      - discovery.type=single-node
+      - ELASTIC_PASSWORD=yourStrongPassword # Set your desired password here
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      # For Elasticsearch 8.x+, HTTPS is enabled by default.
+      # If you want to disable HTTPS for simplicity in local dev (NOT recommended for prod):
+      # - xpack.security.http.ssl.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    healthcheck:
+      # Updated healthcheck to use basic auth and handle potential HTTPS
+      # If you disable SSL above, use http://localhost:9200
+      # If SSL is enabled (default), you might need -k for self-signed certs in dev
+      test: ["CMD-SHELL", "curl -s -u elastic:password -k https://localhost:9200/_cluster/health | grep -q '\"status\":\"\\(green\\|yellow\\)\"'"]
+      interval: 20s # Increased interval slightly for first startup with security
+      timeout: 10s
+      retries: 5
+      start_period: 60s # Give ES more time to start before health checks begin
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.12.0 # Specify a version matching Elasticsearch
+    container_name: kibana-cdc
+    environment:
+      # If ES SSL is enabled (default): ELASTICSEARCH_HOSTS=["https://elasticsearch:9200"]
+      # If ES SSL is disabled: ELASTICSEARCH_HOSTS=["http://elasticsearch:9200"]
+      - ELASTICSEARCH_HOSTS=["https://elasticsearch:9200"] # Default is HTTPS for ES 8.x
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=password # Use the same password as above
+      # If ES SSL is enabled and uses self-signed certs (default in dev):
+      - ELASTICSEARCH_SSL_VERIFICATIONMODE=none
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+
+
 volumes:
   pg_data:
   kafka_data:
+  esdata:
