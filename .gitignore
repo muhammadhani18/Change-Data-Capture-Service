@@ -1,2 +1,4 @@
 Docs/
 config.yaml
+cdc-checkpoint.db
+cdc-logs.db
