@@ -1,5 +1,5 @@
 -- Create database first
-CREATE DATABASE mydb;
+-- CREATE DATABASE mydb;
 
 -- Create user with replication privileges if it doesn't exist
 DO

@@ -1,1 +1,2 @@
 docker exec -it cdc_kafka kafka-console-consumer.sh --bootstrap-server kafka:9092 --topic cdc-events --from-beginning --max-messages 5
+curl.exe -u elastic:U9O9Zb7vZ20LTZdOz2vX "http://localhost:9200/cdc_public_users/_search?pretty"
